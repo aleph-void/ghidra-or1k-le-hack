@@ -2,6 +2,17 @@
 
 <language_definitions>
   <language processor="OpenRISC"
+            endian="little"
+            size="32"
+            variant="default"
+            version="1.0"
+            slafile="OpenRISC-le.sla"
+            processorspec="OpenRISC.pspec"
+            id="OpenRISC:LE:32:default">
+    <description>OpenRISC 1000 ORBIS32 LE</description>
+    <compiler name="default" spec="OpenRISC.cspec" id="default" />
+  </language>
+  <language processor="OpenRISC"
             endian="big"
             size="32"
             variant="default"

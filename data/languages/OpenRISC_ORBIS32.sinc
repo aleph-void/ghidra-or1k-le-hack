@@ -107,13 +107,13 @@ sprD: ea is uimm16a & uimm16b [ ea = uimm16a << 11 | uimm16b; ] {
 # Instructions
 #
 :l.j mN is opcode = 0x0 & mN {
-	delayslot(1);
+#	delayslot(1);
 	goto mN;
 }
 
 :l.jal mN is opcode = 0x1 & mN {
 	r9 = inst_next + 4;
-	delayslot(1);
+#	delayslot(1);
 	call mN;
 }
 
@@ -123,13 +123,13 @@ sprD: ea is uimm16a & uimm16b [ ea = uimm16a << 11 | uimm16b; ] {
 
 :l.bnf mN is opcode = 0x3 & mN {
 	local flag = F;
-	delayslot(1);
+#	delayslot(1);
 	if (!flag) goto mN;
 }
 
 :l.bf mN is opcode = 0x4 & mN {
 	local flag = F;
-	delayslot(1);
+#	delayslot(1);
 	if (flag) goto mN;
 }
 
@@ -173,20 +173,20 @@ with : opcode = 0x8 {
 
 :l.jr rB is opcode = 0x11 & rB {
 	local ea = rB;
-	delayslot(1);
+#	delayslot(1);
 	goto [ea];
 }
 
 :l.jr rB is opcode = 0x11 & rB & rB = 0x9 {
 	local ea = rB;
-	delayslot(1);
+#	delayslot(1);
 	return [ea];
 }
 
 :l.jalr rB is opcode = 0x12 & rB {
 	local ea = rB;
 	r9 = inst_next + 4;
-	delayslot(1);
+#	delayslot(1);
 	call [ea];
 }
 
