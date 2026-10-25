@@ -73,6 +73,9 @@ define pcodeop cust6;
 define pcodeop cust7;
 define pcodeop cust8;
 
+define pcodeop syscall;
+define pcodeop trap;
+
 #
 # Operands
 #
@@ -86,8 +89,9 @@ iK: uimm16 is uimm16 {
 	export val;
 }
 
-iL: uimm5 is uimm5 {
-	local val:4 = uimm5;
+# 6-bit shift amount as encoded (binutils prints all 6 bits); a 32-bit core uses the low 5
+iL: uimm6 is uimm6 {
+	local val:4 = uimm6 & 0x1f;
 	export val;
 }
 
@@ -105,9 +109,9 @@ mN: ea is imm26 [ ea = (imm26 << 2) + inst_start; ] {
 	export *:4 ea;
 }
 
-mNadrp: page is imm21 [ page = imm21 << 13; ] {
-	local ea:4 = page + (inst_start & -8192);
-	export ea;
+# l.adrp: rD <- (PC & ~0x1fff) + exts(N << 13); shown as the resolved page address
+mNadrp: page is imm21 [ page = ((imm21 << 13) + (inst_start & 0xffffe000)) & 0xffffffff; ] {
+	export *[const]:4 page;
 }
 
 sprD: ea is uimm16a & uimm16b [ ea = uimm16a << 11 | uimm16b; ] {
@@ -117,6 +121,9 @@ sprD: ea is uimm16a & uimm16b [ ea = uimm16a << 11 | uimm16b; ] {
 
 #
 # Instructions
+#
+# Decoding follows the binutils 2.45 opcode masks (opcodes/or1k-opc.c): reserved bits that
+# binutils requires to be zero must be zero here too.
 #
 :l.j mN is opcode = 0x0 & mN {
 	$(DELAY_SLOT)
@@ -145,9 +152,9 @@ sprD: ea is uimm16a & uimm16b [ ea = uimm16a << 11 | uimm16b; ] {
 	if (flag) goto mN;
 }
 
-:l.nop iK is opcode = 0x5 & op5code = 0x1 & iK {}
+:l.nop iK is opcode = 0x5 & op5code = 0x1 & f_16_23 = 0 & iK {}
 
-with : opcode = 0x6 {
+with : opcode = 0x6 & f_17_20 = 0 {
 	:l.movhi rD, iK is op6code = 0x0 & rD & iK {
 		rD = iK << 16;
 	}
@@ -161,16 +168,17 @@ with : opcode = 0x6 {
 }
 
 with : opcode = 0x8 {
+	# Linux: l.sys 1 with the system call number in r11, arguments in r3..r8, result in r11.
+	# The exception handler returns to the next instruction, so this falls through.
 	:l.sys iK is op8code = 0x000 & iK {
-		EPCR0 = inst_start;
-		ESR0 = SR;
-		goto 0xc00;
+		EPCR0 = inst_next;
+		r11 = syscall(iK, r11, r3, r4, r5, r6, r7, r8);
 	}
 
+	# Breakpoints and gcc's __builtin_trap(); a debugger may resume after it.
 	:l.trap iK is op8code = 0x100 & iK {
 		EPCR0 = inst_start;
-		ESR0 = SR;
-		goto 0xe00;
+		trap(iK);
 	}
 
 	:l.msync is op8code = 0x200 & uimm16 = 0x0 { msync(); }
@@ -178,31 +186,31 @@ with : opcode = 0x8 {
 	:l.csync is op8code = 0x300 & uimm16 = 0x0 { csync(); }
 }
 
-:l.rfe is opcode = 0x9 {
+:l.rfe is opcode = 0x9 & imm26 = 0 {
 	SR = ESR0;
-	goto [EPCR0];
+	return [EPCR0];
 }
 
-:l.jr rB is opcode = 0x11 & rB {
+:l.jr rB is opcode = 0x11 & op8code = 0 & f_0_10 = 0 & rB {
 	local ea = rB;
 	$(DELAY_SLOT)
 	goto [ea];
 }
 
-:l.jr rB is opcode = 0x11 & rB & rB = 0x9 {
+:l.jr rB is opcode = 0x11 & op8code = 0 & f_0_10 = 0 & rB & f_11_15 = 9 {
 	local ea = rB;
 	$(DELAY_SLOT)
 	return [ea];
 }
 
-:l.jalr rB is opcode = 0x12 & rB {
+:l.jalr rB is opcode = 0x12 & op8code = 0 & f_0_10 = 0 & rB {
 	local ea = rB;
 	r9 = $(LINK_ADDR);
 	$(DELAY_SLOT)
 	call [ea];
 }
 
-:l.maci rA, iI is opcode = 0x13 & rA & iI {
+:l.maci rA, iI is opcode = 0x13 & f_21_25 = 0 & rA & iI {
 	local previous;
 	local result;
 	getmac(previous);
@@ -215,10 +223,10 @@ with : opcode = 0x8 {
 :l.lf  rD, mB is opcode = 0x1a & rD & mB { rD = *:4 mB; }
 :l.lwa rD, mB is opcode = 0x1b & rD & mB { rD = *:4 mB; }
 
-:l.cust1 is opcode = 0x1c { cust1(); }
-:l.cust2 is opcode = 0x1d { cust2(); }
-:l.cust3 is opcode = 0x1e { cust3(); }
-:l.cust4 is opcode = 0x1f { cust4(); }
+:l.cust1 is opcode = 0x1c & imm26 = 0 { cust1(); }
+:l.cust2 is opcode = 0x1d & imm26 = 0 { cust2(); }
+:l.cust3 is opcode = 0x1e & imm26 = 0 { cust3(); }
+:l.cust4 is opcode = 0x1f & imm26 = 0 { cust4(); }
 
 :l.lwz rD, mB is opcode = 0x21 & rD & mB { rD = *:4 mB; }
 :l.lws rD, mB is opcode = 0x22 & rD & mB { rD = *:4 mB; }
@@ -236,7 +244,7 @@ with : opcode = 0x8 {
 :l.muli  rD, rA, iI is opcode = 0x2c & rD & rA & iI {
 	local result;
 	mul64s(result, rA, iI);
-	OV = result s>= 0x100000000 || result s<= -0x100000000;
+	OV = result s> 0x7fffffff || result s< -0x80000000;
 	rD = result:4;
 }
 
@@ -245,11 +253,11 @@ with : opcode = 0x8 {
 	rD = *[register]ea;
 }
 
-with : opcode = 0x2e {
-	:l.slli rD, rA, iL is mod = 0x0 & rD & rA & iL { rD = rA  << iL; }
-	:l.srli rD, rA, iL is mod = 0x1 & rD & rA & iL { rD = rA  >> iL; }
-	:l.srai rD, rA, iL is mod = 0x2 & rD & rA & iL { rD = rA s>> iL; }
-	:l.rori rD, rA, iL is mod = 0x3 & rD & rA & iL { rD = rA  >> iL | rA << (32 - iL); }
+with : opcode = 0x2e & f_8_15 = 0 {
+	:l.slli rD, rA, uimm6 is mod = 0x0 & rD & rA & uimm6 & iL { rD = rA  << iL; }
+	:l.srli rD, rA, uimm6 is mod = 0x1 & rD & rA & uimm6 & iL { rD = rA  >> iL; }
+	:l.srai rD, rA, uimm6 is mod = 0x2 & rD & rA & uimm6 & iL { rD = rA s>> iL; }
+	:l.rori rD, rA, uimm6 is mod = 0x3 & rD & rA & uimm6 & iL { rD = (rA >> iL) | (rA << ((32 - iL) & 0x1f)); }
 }
 
 with : opcode = 0x2f {
@@ -270,8 +278,8 @@ with : opcode = 0x2f {
 	*[register]ea = rB;
 }
 
-with : opcode = 0x31 {
-	:l.mac rA, rB is minor = 0x1 & rA & rB {
+with : opcode = 0x31 & f_21_25 = 0 {
+	:l.mac rA, rB is f_0_10 = 0x1 & rA & rB {
 		local previous;
 		local result;
 		getmac(previous);
@@ -281,7 +289,7 @@ with : opcode = 0x31 {
 		setmac(result);
 	}
 
-	:l.msb rA, rB is minor = 0x2 & rA & rB {
+	:l.msb rA, rB is f_0_10 = 0x2 & rA & rB {
 		local previous;
 		local result;
 		getmac(previous);
@@ -291,7 +299,7 @@ with : opcode = 0x31 {
 		setmac(result);
 	}
 
-	:l.macu rA, rB is minor = 0x3 & rA & rB {
+	:l.macu rA, rB is f_0_10 = 0x3 & rA & rB {
 		local previous;
 		local result;
 		getmac(previous);
@@ -301,7 +309,7 @@ with : opcode = 0x31 {
 		setmac(result);
 	}
 
-	:l.msbu rA, rB is minor = 0x4 & rA & rB {
+	:l.msbu rA, rB is f_0_10 = 0x4 & rA & rB {
 		local previous;
 		local result;
 		getmac(previous);
@@ -323,38 +331,30 @@ with : opcode = 0x31 {
 :l.sh  mD, rB is opcode = 0x37 & mD & rB { *mD = rB:2; }
 
 with : opcode = 0x38 {
-	with : major = 0x0 {
-		:l.add  rD, rA, rB is minor = 0x0 & rD & rA & rB { halfAdd(rD, rA, rB); }
-		:l.addc rD, rA, rB is minor = 0x1 & rD & rA & rB { fullAdd(rD, rA, rB); }
-		:l.sub  rD, rA, rB is minor = 0x2 & rD & rA & rB { halfSub(rD, rA, rB); }
-		:l.and  rD, rA, rB is minor = 0x3 & rD & rA & rB { rD = rA & rB; }
-		:l.or   rD, rA, rB is minor = 0x4 & rD & rA & rB { rD = rA | rB; }
-		:l.xor  rD, rA, rB is minor = 0x5 & rD & rA & rB { rD = rA ^ rB; }
+	:l.add  rD, rA, rB is f_0_10 = 0x000 & rD & rA & rB { halfAdd(rD, rA, rB); }
+	:l.addc rD, rA, rB is f_0_10 = 0x001 & rD & rA & rB { fullAdd(rD, rA, rB); }
+	:l.sub  rD, rA, rB is f_0_10 = 0x002 & rD & rA & rB { halfSub(rD, rA, rB); }
+	:l.and  rD, rA, rB is f_0_10 = 0x003 & rD & rA & rB { rD = rA & rB; }
+	:l.or   rD, rA, rB is f_0_10 = 0x004 & rD & rA & rB { rD = rA | rB; }
+	:l.xor  rD, rA, rB is f_0_10 = 0x005 & rD & rA & rB { rD = rA ^ rB; }
 
-		with : minor = 0x8 {
-			:l.sll rD, rA, rB is mod = 0x0 & rD & rA & rB { rD = rA  << rB; }
-			:l.srl rD, rA, rB is mod = 0x1 & rD & rA & rB { rD = rA  >> rB; }
-			:l.sra rD, rA, rB is mod = 0x2 & rD & rA & rB { rD = rA s>> rB; }
-
-			:l.ror rD, rA, rB is mod = 0x3 & rD & rA & rB {
-				rD = rA >> rB | rA << (32 - rB);
-			}
-		}
-
-		with : minor = 0xc {
-			:l.exths rD, rA is mod = 0x0 & rD & rA { rD = sext(rA:2); }
-			:l.extbs rD, rA is mod = 0x1 & rD & rA { rD = sext(rA:1); }
-			:l.exthz rD, rA is mod = 0x2 & rD & rA { rD = zext(rA:2); }
-			:l.extbz rD, rA is mod = 0x3 & rD & rA { rD = zext(rA:1); }
-		}
-
-		with : minor = 0xd {
-			:l.extws rD, rA is mod = 0x0 & rD & rA { rD = sext(rA:4); }
-			:l.extwz rD, rA is mod = 0x1 & rD & rA { rD = zext(rA:4); }
-		}
+	# shift amounts use the low 5 bits of rB
+	:l.sll rD, rA, rB is f_0_10 = 0x008 & rD & rA & rB { rD = rA  << (rB & 0x1f); }
+	:l.srl rD, rA, rB is f_0_10 = 0x048 & rD & rA & rB { rD = rA  >> (rB & 0x1f); }
+	:l.sra rD, rA, rB is f_0_10 = 0x088 & rD & rA & rB { rD = rA s>> (rB & 0x1f); }
+	:l.ror rD, rA, rB is f_0_10 = 0x0c8 & rD & rA & rB {
+		local n = rB & 0x1f;
+		rD = (rA >> n) | (rA << ((32 - n) & 0x1f));
 	}
 
-	:l.cmov rD, rA, rB is major = 0x0 & minor = 0xe & rD & rA & rB {
+	:l.exths rD, rA is f_0_10 = 0x00c & f_11_15 = 0 & rD & rA { rD = sext(rA:2); }
+	:l.extbs rD, rA is f_0_10 = 0x04c & f_11_15 = 0 & rD & rA { rD = sext(rA:1); }
+	:l.exthz rD, rA is f_0_10 = 0x08c & f_11_15 = 0 & rD & rA { rD = zext(rA:2); }
+	:l.extbz rD, rA is f_0_10 = 0x0cc & f_11_15 = 0 & rD & rA { rD = zext(rA:1); }
+	:l.extws rD, rA is f_0_10 = 0x00d & f_11_15 = 0 & rD & rA { rD = rA; }
+	:l.extwz rD, rA is f_0_10 = 0x04d & f_11_15 = 0 & rD & rA { rD = rA; }
+
+	:l.cmov rD, rA, rB is f_0_10 = 0x00e & rD & rA & rB {
 		if (F) goto <choose_rA>;
 		rD = rB;
 		goto inst_next;
@@ -362,70 +362,58 @@ with : opcode = 0x38 {
 		rD = rA;
 	}
 
-	:l.ff1 rD, rA is major = 0x0 & minor = 0xf & rD & rA {
-		local bit = 0;
-		if (rA == 0) goto <done>;
-		<loop>
-		local zero = (rA & (1 << bit)) == 0;
-		bit = bit + 1;
-		if (zero) goto <loop>;
-		<done>
-		rD = bit;
+	# first set bit, counting from 1 at the LSB (0 if none)
+	:l.ff1 rD, rA is f_0_10 = 0x00f & rD & rA {
+		local v = rA;
+		local n:4 = popcount((v & -v) - 1);
+		rD = (n + 1) * zext(v != 0);
 	}
 
-	:l.fl1 rD, rA is major = 0x1 & minor = 0xf & rD & rA {
-		local bit = 0;
-		if (rA == 0) goto <done>;
-		bit = 32;
-		<loop>
-		bit = bit - 1;
-		local zero = (rA & (1 << bit)) == 0;
-		if (zero) goto <loop>;
-		bit = bit + 1;
-		<done>
-		rD = bit;
+	# last set bit, counting from 1 at the LSB (0 if none)
+	:l.fl1 rD, rA is f_0_10 = 0x10f & rD & rA {
+		rD = 32 - lzcount(rA);
 	}
 
-	with : major = 0x3 {
-		:l.mul rD, rA, rB is minor = 0x6 & rD & rA & rB {
-			local result;
-			mul64s(result, rA, rB);
-			OV = result s>= 0x100000000 || result s<= -0x100000000;
-			rD = result:4;
-		}
+	:l.mul rD, rA, rB is f_0_10 = 0x306 & rD & rA & rB {
+		local result;
+		mul64s(result, rA, rB);
+		OV = result s> 0x7fffffff || result s< -0x80000000;
+		rD = result:4;
+	}
 
-		:l.div rD, rA, rB is minor = 0x9 & rD & rA & rB {
-			OV = rB == 0;
-			rD = rA s/ rB;
-		}
+	:l.div rD, rA, rB is f_0_10 = 0x309 & rD & rA & rB {
+		OV = rB == 0;
+		rD = rA s/ rB;
+	}
 
-		:l.divu rD, rA, rB is minor = 0xa & rD & rA & rB {
-			CY = rB == 0;
-			rD = rA / rB;
-		}
+	:l.divu rD, rA, rB is f_0_10 = 0x30a & rD & rA & rB {
+		CY = rB == 0;
+		rD = rA / rB;
+	}
 
-		:l.mulu rD, rA, rB is minor = 0xb & rD & rA & rB {
-			local result;
-			mul64z(result, rA, rB);
-			CY = result >= 0x100000000;
-			rD = result:4;
-		}
+	:l.mulu rD, rA, rB is f_0_10 = 0x30b & rD & rA & rB {
+		local result;
+		mul64z(result, rA, rB);
+		CY = result > 0xffffffff;
+		rD = result:4;
+	}
 
-		:l.muld rA, rB is minor = 0x7 & rA & rB {
-			local result;
-			mul64s(result, rA, rB);
-			setmac(result);
-		}
+	:l.muld rA, rB is f_0_10 = 0x307 & f_21_25 = 0 & rA & rB {
+		local result;
+		mul64s(result, rA, rB);
+		setmac(result);
+	}
 
-		:l.muldu rA, rB is minor = 0xc & rA & rB {
-			local result;
-			mul64z(result, rA, rB);
-			setmac(result);
-		}
+	# Arch manual 1.4 and QEMU encode l.muldu with secondary opcode 0xc; binutils 2.45 uses
+	# 0xd (cpu/or1korbis.cpu OPC_ALU_REGREG_MULDU). The manual's encoding is used here.
+	:l.muldu rA, rB is f_0_10 = 0x30c & f_21_25 = 0 & rA & rB {
+		local result;
+		mul64z(result, rA, rB);
+		setmac(result);
 	}
 }
 
-with : opcode = 0x39 {
+with : opcode = 0x39 & f_0_10 = 0 {
 	:l.sfeq  rA, rB is cond = 0x0 & rA & rB { F = rA  == rB; }
 	:l.sfne  rA, rB is cond = 0x1 & rA & rB { F = rA  != rB; }
 	:l.sfgtu rA, rB is cond = 0x2 & rA & rB { F = rA  >  rB; }
@@ -438,7 +426,7 @@ with : opcode = 0x39 {
 	:l.sfles rA, rB is cond = 0xd & rA & rB { F = rA s<= rB; }
 }
 
-:l.cust5 is opcode = 0x3c { cust5(); }
-:l.cust6 is opcode = 0x3d { cust6(); }
-:l.cust7 is opcode = 0x3e { cust7(); }
-:l.cust8 is opcode = 0x3f { cust8(); }
+:l.cust5 is opcode = 0x3c & imm26 = 0 { cust5(); }
+:l.cust6 is opcode = 0x3d & imm26 = 0 { cust6(); }
+:l.cust7 is opcode = 0x3e & imm26 = 0 { cust7(); }
+:l.cust8 is opcode = 0x3f & imm26 = 0 { cust8(); }

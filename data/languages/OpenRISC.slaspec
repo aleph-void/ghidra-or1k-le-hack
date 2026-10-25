@@ -27,6 +27,13 @@ define register offset=0x100000 size=1 [
 	F CY OV
 ];
 
+# Program counter (not an SPR; NPC/PPC are views of it in hardware)
+define register offset=0x100100 size=4 [ pc ];
+
+# Scratch result of a double-precision (ORFPX64A32) operation before it is split into a
+# register pair
+define register offset=0x100200 size=8 [ fpres ];
+
 define token instr(32)
 	opcode	= (26, 31) # main opcode
 	op5code	= (24, 25) # used when opcode == 5
@@ -48,6 +55,24 @@ define token instr(32)
 	imm26	= ( 0, 25) signed
 
 	uimm5	= ( 0,  4)
+	uimm6	= ( 0,  5)
+
+	# fixed/reserved bit groups, used to match the binutils opcode masks exactly
+	f_0_7	= ( 0,  7)
+	f_0_10	= ( 0, 10)
+	f_6_9	= ( 6,  9)
+	f_8_10	= ( 8, 10)
+	f_8_15	= ( 8, 15)
+	f_16_23	= (16, 23)
+	f_17_20	= (17, 20)
+	f_16_20	= (16, 20)
+	f_11_15	= (11, 15)
+	f_21_25	= (21, 25)
+
+	# ORFPX64A32 register-pair offset bits (second register is +2 when set, else +1)
+	pD	= (10, 10)
+	pA	= ( 9,  9)
+	pB	= ( 8,  8)
 	uimm16	= ( 0, 15)
 	uimm16a	= (21, 25)
 	uimm16b	= ( 0, 10)
@@ -59,3 +84,4 @@ attach variables [ rA rB rD ] [
 ];
 
 @include "OpenRISC_ORBIS32.sinc"
+@include "OpenRISC_ORFPX.sinc"
