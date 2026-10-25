@@ -4,7 +4,7 @@
 #   2. decode corpora (every binutils opcode-table entry + 50,000 random words) vs objdump,
 #      BE (-m or1k -EB) and LE (-m or1knd -EL)
 #   3. every-entry decode test
-#   4. p-code emulator tests (33 per language)
+#   4. p-code emulator tests (38 per language)
 #   5. committed test ELFs: import + analysis + decompile, and the relocation handler vs ld
 #      (the ld step needs the Bootlin toolchain; it is skipped without OR1K_TOOLCHAIN)
 #
@@ -77,7 +77,7 @@ for f in or1ktest.elf; do
 done
 if [[ -n ${OR1K_TOOLCHAIN:-} ]]; then
 	"$HERE/reloc-check.sh" "$OR1K_TOOLCHAIN/or1k-buildroot-linux-gnu-ld" "$OBJDUMP" "$W/rel" \
-		"$HERE/elf/relocs.o" "$HERE/elf/or1ktest.o"
+		"$HERE/elf/relocs.o" "$HERE/elf/or1ktest.o" "$HERE/elf/got_pic.o" "$HERE/elf/got_nopic.o" "$HERE/elf/relocs_small.o"
 else
 	echo "-- relocation handler vs ld: skipped (set OR1K_TOOLCHAIN)"
 fi

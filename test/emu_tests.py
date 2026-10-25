@@ -115,12 +115,25 @@ T = [
              (0x06 << 26) | (3 << 21) | 0x10000],
      {"r4": 0x10000, "r5": 0x30001}, {"r3": 0x20000, "MACHI": 0, "MACLO": 0}),
     ("muldu", [R(0, 4, 5, 0x30c)], {"r4": M, "r5": 2}, {"MACHI": 1, "MACLO": 0xfffffffe}),
+    ("muldu_binutils", [R(0, 4, 5, 0x30d)], {"r4": M, "r5": 2}, {"MACHI": 1, "MACLO": 0xfffffffe}),
+    # SR (SPR 17) bits 9, 10, 11 are F, CY, OV: l.mtspr sets them, l.mfspr reads them
+    ("sr_write_flags", [S(0x30, 0, 4, 17), SF(1, 0, 0), (0x2d << 26) | (3 << 21) | (0 << 16) | 17],
+     {"r4": 0x8201}, {"r3": 0x8001, "F": 0, "CY": 0, "OV": 0}),  # F set by mtspr, cleared by sfne
+    ("sr_read_flags", [(0x2d << 26) | (3 << 21) | (0 << 16) | 17],
+     {"CY": 1, "OV": 1, "F": 0}, {"r3": 0xc00}),
     ("mtspr_mfspr", [S(0x30, 0, 4, 0x2802), (0x2d << 26) | (3 << 21) | (0 << 16) | 0x2802],
      {"r4": 0xabcd}, {"MACHI": 0xabcd, "r3": 0xabcd}),  # SPR 0x2802 = MACHI
     ("fp_single", [FP(3, 4, 5, 0x00), FP(6, 4, 5, 0x02), FP(7, 8, 0, 0x04), FP(9, 6, 0, 0x05),
                    FP(0, 4, 5, 0x0c)],
      {"r4": 0x3fc00000, "r5": 0x40100000, "r8": 7},
      {"r3": 0x40700000, "r6": 0x40580000, "r7": 0x40e00000, "r9": 3, "F": 1}),
+    # lf.rem: IEEE remainder (quotient rounded to nearest even)
+    ("fp_rem_single", [FP(3, 4, 5, 0x06), FP(6, 7, 5, 0x06)],
+     {"r4": 0x40f00000, "r5": 0x40000000, "r7": 0x40a00000},
+     {"r3": 0xbf000000, "r6": 0x3f800000}),  # rem(7.5, 2) = -0.5; rem(5, 2) = 1 (2.5 -> 2)
+    ("fp_rem_double", [FP(8, 4, 6, 0x16), FP(10, 12, 6, 0x16)],
+     {"r4": 0x401c0000, "r5": 0, "r6": 0x40080000, "r7": 0, "r12": 0x4341c379, "r13": 0x37e08000},
+     {"r8": 0x3ff00000, "r9": 0, "r10": 0x3ff00000, "r11": 0}),  # rem(7, 3) = 1; rem(1e16, 3) = 1
     ("fp_double_pair", [FP(8, 4, 6, 0x10), FP(0, 4, 6, 0x1c)],
      {"r4": 0x3ff80000, "r5": 0, "r6": 0x40020000, "r7": 0},
      {"r8": 0x400e0000, "r9": 0, "F": 1}),

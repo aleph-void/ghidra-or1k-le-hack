@@ -60,8 +60,15 @@ These are modelled specially:
 - **Exception return.** `l.rfe` is a return through `EPCR0`.
 - **Reading the PC.** `l.jal 8` (`l.jal 4` without delay slots) is how PIC code reads the PC.
   It sets r9 and falls through instead of being a call.
-- **Pcodeops.** `l.cust1`–`l.cust8`, `lf.cust1`, `lf.rem` and the sync instructions are
-  pcodeops.
+- **SR flags.** `F`, `CY` and `OV` are their own registers, which keeps the decompiled
+  compare-and-branch code readable. `l.mtspr` to SR (SPR 17) sets them from bits 9, 10 and 11.
+  `l.mfspr` from SR returns SR with those bits taken from the flags. `l.rfe` restores them from
+  ESR0.
+- **`lf.rem.s`/`lf.rem.d`.** These are the exact IEEE 754 remainder: the quotient is rounded to
+  nearest even. The p-code is a binary long-division loop.
+- **Pcodeops.** `l.cust1`–`l.cust8` and `lf.cust1` are pcodeops: they are implementation-defined
+  custom instructions. The sync instructions (`l.msync`, `l.psync`, `l.csync`) are also
+  pcodeops: they are pipeline and memory barriers with no data effect.
 
 ## Test results
 
@@ -79,9 +86,9 @@ agreement.
 
 | Corpus | Words | Agreement | Exact + semantic among decoded words | Unexplained differences |
 |---|---|---|---|---|
-| table, BE | 6,090 | 95.16 % | 5,788 / 6,083 | 0 |
+| table, BE | 6,090 | 95.85 % | 5,830 / 6,083 | 0 |
 | fuzz, BE | 50,000 | 98.45 % | 19,003 / 19,776 | 0 |
-| table, LE | 6,090 | 95.16 % | 5,788 / 6,083 | 0 |
+| table, LE | 6,090 | 95.85 % | 5,830 / 6,083 | 0 |
 | fuzz, LE | 50,000 | 98.45 % | 19,003 / 19,776 | 0 |
 
 "Semantic" means the same instruction with numbers in another base. Ghidra prints hex where
@@ -95,20 +102,19 @@ Every difference falls into one of three classes, and `compare.py` reports each 
 2. **`l.muldu`.** The OpenRISC 1000 manual (1.4, p. 90) and QEMU
    (`target/or1k/insns.decode`) give it secondary opcode 0xc. binutils
    (`cpu/or1korbis.cpu`, `OPC_ALU_REGREG_MULDU #xD`) uses 0xd, and that is still so on
-   binutils master. This module follows the manual. None of the real samples contains
-   either encoding.
+   binutils master. 0xd is otherwise unassigned, so the module decodes both: 0xd agrees with
+   objdump, and 0xc is Ghidra-only (42 table words).
 3. **ORFPX64A32 register pairs past r31.** When rN is r31 (or r30 with the +2 pair bit),
    objdump prints a pair such as `r31,r33`. Those registers do not exist, so Ghidra rejects
    the word (92 table words; 2 fuzz words).
 
 **Every-entry test** (`test/entry_check.py`): all 145 table entries decode in Ghidra with
 their own mnemonic, both with operand bits 0 and with operand bits 1, on BE and on LE. The
-only exceptions are the binutils `l.muldu` encoding and the all-ones register-pair forms
-(classes 2 and 3 above).
+only exception is the all-ones register-pair forms (class 3 above).
 
 ### Emulator
 
-`test/emu_tests.py` and `test/EmuCheck.java` run 33 instruction sequences per language in
+`test/emu_tests.py` and `test/EmuCheck.java` run 38 instruction sequences per language in
 Ghidra's p-code emulator and check registers and memory against hand-computed values. They
 cover:
 
@@ -117,12 +123,15 @@ cover:
   and signed and unsigned multiply and divide.
 - `l.ext*`, `l.ff1`/`l.fl1`, `l.cmov`, and signed versus unsigned compares.
 - Word, half and byte loads and stores, including the split store offset.
-- MAC and `l.macrc`, `l.muldu`, `l.mtspr`/`l.mfspr`.
+- MAC and `l.macrc`, `l.muldu` in both encodings, `l.mtspr`/`l.mfspr`.
+- SR: `l.mtspr` to SR sets F, and `l.mfspr` from SR reads CY and OV.
+- `lf.rem.s`/`lf.rem.d`: IEEE remainder, including a quotient tie (rounded to even) and a
+  quotient of about 3.3e15.
 - Single precision, double precision on register pairs (both pair offsets) and `lf.dtos.d`.
 - Calls and returns, `l.jalr`, taken and not-taken branches with and without delay slots, a
   loop, the PC read and `l.adrp`.
 
-Results: 33/33 on BE and 33/33 on LE. With `--break N` the generator makes one expectation
+Results: 38/38 on BE and 38/38 on LE. With `--break N` the generator makes one expectation
 wrong, and the check then reports exactly that test as failed.
 
 ### Compiled test program and relocations
@@ -143,6 +152,16 @@ extension: `-mhard-float -mdouble-float -mcmov -msext -mror -mrori -msfimm -mshf
   - `or1ktest.o`: 266 relocations, 740 bytes, 0 differ.
   - Types checked against ld: `32`, `32_PCREL`, `HI_16_IN_INSN`, `LO_16_IN_INSN`, `AHI16`,
     `SLO16`, `INSN_REL_26`, `PLT26`, `PCREL_PG21`, `LO13`, `SLO13`.
+- **GOT model (`test/elf/got.c`, built `-fPIC` and without it, `test/got_check.py`).** A
+  relocatable object has no GOT, so Ghidra puts the entries in an artificial `%got` block, and
+  ld builds its own `.got`. Each site is compared by what it computes in both images: the value
+  in the GOT entry it selects, the address it forms, or (GOTPC) its GOT address.
+  - `got_pic.o`: 15 relocations. GOTPC_HI16 8, GOTPC_LO16 8, GOT16 3 and GOTOFF pairs 2 all
+    agree, and the other 140 bytes are identical.
+  - `got_nopic.o`: 16 relocations. All 21 sites agree, and the other 148 bytes are identical.
+- **8- and 16-bit data (`test/elf/relocs_small.s`).** `R_OR1K_16`, `R_OR1K_8` and
+  `R_OR1K_16_PCREL` are checked against S + A (- P), 5 of 5. GNU ld cannot be the reference:
+  2.43 and 2.45 both hit a BFD assertion on these types (see below).
 
 ### Real binaries
 
@@ -163,7 +182,7 @@ function. It then compares every instruction Ghidra found with objdump at the sa
 | `ld-linux-or1k.so.1` | 282 | 0 | 282 / 282 | 39,432 / 39,432 (100 %) | 19 applied |
 | `libc.so.6` | 3,201 (60 PLT thunks) | 0 | 3,170 / 3,170 (+13 EXTERNAL stubs) | 361,823 / 361,823 (100 %) | 1,050 applied, 12 TLS reported |
 | `libm.so.6` | 451 | 0 | 439 / 439 (+6 EXTERNAL stubs) | 119,350 / 119,350 (100 %) | 13 applied, 1 TLS reported |
-| `vmlinux` (Linux kernel) | 9,027 | 1 (entry word, see below) | 9,027 / 9,027 | 614,854 / 614,854 (100 %) | – |
+| `vmlinux` (Linux kernel) | 9,047 | 1 (entry word, see below) | 9,047 / 9,047 | 616,117 / 616,117 (100 %) | – |
 
 No decompile failed or timed out (60 s limit per function). In the decompiled code:
 
@@ -200,37 +219,53 @@ clone into `Ghidra/Processors`) were updated in README.md, which now also lists 
   jump-table recovery reads entries from the wrong place. It then disassembles 49 words of
   `.rodata` as code, which produces the 49 bad-instruction bookmarks. This is a decompiler
   limitation, not a decoding error. The same functions in `libc.so.6` do not trigger it.
-- **Kernel entry and vectors.** The kernel's ELF entry point (`0xc0000000`) is a zero word,
-  which decodes as `l.j .` with another `l.j .` in its delay slot. Ghidra reports that as one
-  bad instruction. The exception vectors at `0xc0000100`… and the `__ex_table` fixup stubs are
-  reached only by hardware or the exception table, so about 2,000 of their words are not
-  disassembled unless the user marks them. The pspec's vector symbols (`0x100`, `0x200`, …)
-  apply only to images loaded at 0.
-- **SR flags.** `F`, `CY` and `OV` are separate registers. An `l.mfspr`/`l.mtspr` of `SR`
-  does not read or write them.
-- **Pcodeops.** Custom instructions (`l.cust*`, `lf.cust1`), `lf.rem` and the sync
-  instructions are pcodeops. Exceptions such as overflow traps, range checks and alignment
-  are not modelled.
-- **`l.muldu`.** Binaries assembled by GNU as with `l.muldu` (secondary opcode 0xd) do not
-  decode. That encoding conflicts with the architecture manual (see "Decoding" above).
-- **TLS relocations.** These and GOT-model relocations in relocatable objects are reported,
-  not applied. `R_OR1K_16`, `R_OR1K_8` and the `_PCREL` 16/8-bit types are implemented but
-  not checked against ld: they overflow at Ghidra's addresses, and ld 2.43 asserts on
-  `R_OR1K_16_PCREL`.
+- **Kernel entry word.** The kernel's ELF entry point (`0xc0000000`) is vector 0, a zero
+  word. It decodes as `l.j .` with another `l.j .` in its delay slot, and Ghidra reports that as
+  one bad instruction. This is correct: the ELF header names a word that is not code. (The
+  exception vectors and `__ex_table` fixups are now disassembled; see the fixes below.)
+- **Custom instructions** (`l.cust*`, `lf.cust1`) are implementation-defined, so they stay
+  pcodeops. The sync instructions are barriers. Hardware exceptions are not modelled: overflow
+  traps (SR[OVE]), range checks and alignment faults change control flow only when the
+  hardware raises them.
+- **TLS relocations in relocatable objects.** Ghidra's ELF loader rejects every relocation
+  against a thread-local (STT_TLS) symbol before a processor's handler runs
+  (ElfRelocationContext.processRelocation). The dynamic DTPMOD/DTPOFF/TPOFF relocations have
+  values only at run time.
 - **ORBIS64.** `l.ld`/`l.sd` and the 64-bit forms are not implemented. No 32-bit core
   uses them.
 - **Little endian.** The LE, no-delay-slot language passes the decode and emulator suites,
   but no little-endian real binary was tested. hx330x firmware images are vendor binaries
   with no public license. Its ELF opinion entry is untested for the same reason.
 
+Fixed in this round (they were listed here before):
+
+- **Exception vectors and `__ex_table` fixups.** `OpenRISCVectorAnalyzer` handles images whose
+  8 KB-aligned entry point holds vector 0, as in a Linux kernel. It disassembles each exception
+  vector and names it (`vector_reset`, `vector_system_call`, ...). It also disassembles every
+  `__ex_table` fixup, which is code of the function that faulted. A fixup's jump back gets a
+  RETURN flow override, so it does not split that function.
+  - vmlinux before: 9,027 functions, 614,854 instructions, 29,088 undisassembled executable
+    bytes.
+  - vmlinux after: 9,047 functions, 616,117 instructions (the vectors and 1,263 fixup and
+    vector words), 24,044 undisassembled bytes.
+  - One function is still split: `do_futex`'s fault path, re-entered from code that only
+    fixups reach, becomes `FUN_c0069678`.
+- **SR flags.** `l.mfspr`/`l.mtspr`/`l.rfe` keep SR and F/CY/OV consistent.
+- **`lf.rem`** is real p-code.
+- **The binutils `l.muldu` encoding** decodes.
+- **GOT-model relocations** in relocatable objects are applied. The 8- and 16-bit data
+  relocations are checked.
+
 ## Confirmed reference-tool issues
 
 - binutils 2.45 does not know the architecture-1.3 instructions `l.lf`, `lf.stod.d` and
   `lf.dtos.d`.
-- binutils encodes `l.muldu` as secondary opcode 0xd, against the manual and QEMU (0xc).
+- binutils encodes `l.muldu` as secondary opcode 0xd, against the manual and QEMU (0xc); the
+  module decodes both.
 - objdump prints nonexistent registers r32/r33 for ORFPX64A32 pairs that start at r31.
-- GNU ld 2.43.1 (Bootlin) hits `BFD assertion fail elf32-or1k.c:1214` when it relocates
-  `R_OR1K_16_PCREL`.
+- GNU ld 2.43.1 and 2.45 assert (`elf32-or1k.c:1214`/`1212`) on every R_OR1K_8, R_OR1K_16
+  and R_OR1K_16_PCREL relocation. `or1k_final_link_relocate` compares the howto's `dst_mask`
+  with `N_ONES(size)`, where `size` is in bytes instead of bits.
 
 ## Testing
 
@@ -250,7 +285,8 @@ Other files in `test/`:
 - `DumpWords.java`: decodes each word on its own.
 - `EmuCheck.java`: the emulator check.
 - `RealCheck.java`: analysis, listing and decompile statistics.
-- `DumpMem.java` and `rawcmp.py`: used by the relocation check.
+- `DumpMem.java`, `rawcmp.py` and `got_check.py`: used by the relocation check.
 - `build-jar.sh`: compiles `lib/OpenRISC.jar` for a development install. `gradle
   buildExtension` builds it for release zips.
-- `elf/build.sh`: rebuilds the test ELFs from `or1ktest.c` and `relocs.s`.
+- `elf/build.sh`: rebuilds the test ELFs from `or1ktest.c`, `relocs.s`, `relocs_small.s` and
+  `got.c`.

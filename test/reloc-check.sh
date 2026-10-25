@@ -16,12 +16,27 @@ for o in "$@"; do
 		-postScript DumpMem.java "$W/$n.mem" -deleteProject >"$W/$n.log" 2>&1 || tail -20 "$W/$n.log"
 	rm -rf "$p"
 	args=()
+	# 8/16-bit data relocations: GNU ld cannot link them (bfd assertion), formula check only
+	[[ $n == relocs_small.o ]] && { echo "-- $n: $(grep '^relocations' "$W/$n.sum"); $(python3 "$HERE/got_check.py" "$o" "$W/$n.sum" "$W/$n.mem" - | tail -1)"; continue; }
 	for b in $(sed -n 's/^blocks: //p' "$W/$n.sum"); do
-		[[ ${b%@*} == EXTERNAL ]] || args+=("--section-start=${b%@*}=0x${b#*@}")
+		case ${b%@*} in
+		EXTERNAL) ;;
+		%got) args+=("--section-start=.got=0x${b#*@}") ;;   # ld's GOT where Ghidra put its own
+		*) args+=("--section-start=${b%@*}=0x${b#*@}") ;;
+		esac
 	done
 	for s in $(sed -n 's/^external symbols: //p' "$W/$n.sum"); do
 		args+=("--defsym=${s%@*}=0x${s#*@}")
 	done
+	if [[ $n == got_* ]]; then
+		# GOT model: Ghidra's GOT is an artificial block, so compare what the sites compute
+		"$LD" -static -e get_ext --no-warn-rwx-segments \
+			"${args[@]}" "$o" -o "$W/$n.ld.elf"
+		echo "-- $n: $(grep '^relocations' "$W/$n.sum"); $(python3 "$HERE/got_check.py" "$o" "$W/$n.sum" "$W/$n.mem" "$W/$n.ld.elf" | tail -1)"
+		python3 "$HERE/got_check.py" "$o" "$W/$n.sum" "$W/$n.mem" "$W/$n.ld.elf" >/dev/null ||
+			python3 "$HERE/got_check.py" "$o" "$W/$n.sum" "$W/$n.mem" "$W/$n.ld.elf" | head -20
+		continue
+	fi
 	"$LD" -e _start --no-warn-rwx-segments "${args[@]}" "$o" -o "$W/$n.ld.elf"
 	"$OD" -s "$W/$n.ld.elf" >"$W/$n.ld.s"
 	echo "-- $n: $(grep '^relocations' "$W/$n.sum"); $(python3 "$HERE/rawcmp.py" "$W/$n.mem" "$W/$n.ld.s" | tail -1)"

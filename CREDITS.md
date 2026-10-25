@@ -71,8 +71,22 @@ Each item names the problem and how it was found.
     GHIDRA-RARE.md, and marks each upstream limitation as fixed or remaining. Neither upstream
     repository has issues.
 
-`l.muldu` keeps the architecture manual's encoding (secondary opcode 0xc, also used by QEMU);
-binutils uses 0xd. See GHIDRA-RARE.md.
+13. Second round, closing the known gaps:
+    - **SR flags.** `l.mtspr`/`l.mfspr` of SR (SPR 17) and `l.rfe` keep SR bits 9-11 and
+      F/CY/OV consistent. Found in the gap list; checked by emulator tests.
+    - **`lf.rem.s`/`lf.rem.d`.** The exact IEEE remainder in p-code (was a pcodeop).
+    - **`l.muldu`.** The binutils encoding (secondary opcode 0xd) also decodes. GNU as emits
+      it.
+    - **`OpenRISCVectorAnalyzer`.** The exception vectors of kernel images and the
+      `__ex_table` fixups are disassembled. vmlinux: 9,027 → 9,047
+      functions, 614,854 → 616,117 instructions, all identical to objdump.
+    - **GOT model.** GOT16, GOT_AHI16, GOT_PG21, GOT_LO13, GOTPC_* and GOTOFF_* are applied in
+      relocatable objects through an artificial `%got` block (`OpenRISC_ElfRelocationContext`).
+      Checked with `test/elf/got.c` against GNU ld.
+    - **8- and 16-bit data relocations.** Checked by formula: GNU ld asserts on them.
+
+`l.muldu` decodes in both the manual's encoding (secondary opcode 0xc, also used by QEMU)
+and binutils' 0xd. See GHIDRA-RARE.md.
 
 Ghidra-Rare additions (not upstream): `GHIDRA-RARE.md`, `CREDITS.md`, `build.gradle`,
 `extension.properties`, `.gitignore`, `.github/` and `test/`.

@@ -7,7 +7,8 @@ import ghidra.app.services.*;
 import ghidra.app.util.importer.MessageLog;
 import ghidra.program.model.address.*;
 import ghidra.program.model.lang.Processor;
-import ghidra.program.model.listing.Program;
+import ghidra.program.model.listing.*;
+import ghidra.program.model.symbol.FlowType;
 import ghidra.program.model.mem.*;
 import ghidra.program.model.symbol.*;
 import ghidra.util.exception.CancelledException;
@@ -118,8 +119,35 @@ public class OpenRISCVectorAnalyzer extends AbstractAnalyzer {
 		}
 		if (!fixups.isEmpty()) {
 			// a fixup sets the error code and jumps back into the function that faulted: it is
-			// code of that function, not a function of its own
-			new DisassembleCommand(fixups, null, true).applyTo(program, monitor);
+			// code of that function, not a function of its own. Its jump back gets a RETURN flow
+			// override, so the jump target (inside the faulting function) does not become a
+			// function that splits it.
+			// disassemble each fixup on its own (its few instructions, not the code it jumps to)
+			AddressSet window = new AddressSet();
+			for (AddressRange r : fixups) {
+				Address f = r.getMinAddress();
+				try {
+					window.add(f, f.add(0x1f));
+				}
+				catch (AddressOutOfBoundsException e) {
+					window.add(f);
+				}
+			}
+			new DisassembleCommand(fixups, window, true).applyTo(program, monitor);
+			for (AddressRange r : fixups) {
+				Instruction ins = program.getListing().getInstructionAt(r.getMinAddress());
+				for (int i = 0; ins != null && i < 8; i++) {
+					FlowType ft = ins.getFlowType();
+					if (ft.isJump() && ft.isUnConditional()) {
+						ins.setFlowOverride(FlowOverride.RETURN);
+						break;
+					}
+					if (!ft.isFallthrough()) {
+						break;
+					}
+					ins = ins.getNext();
+				}
+			}
 		}
 		if (code.isEmpty()) {
 			return true;
