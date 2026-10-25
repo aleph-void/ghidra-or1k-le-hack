@@ -136,6 +136,20 @@ sprD: ea is uimm16a & uimm16b [ ea = uimm16a << 11 | uimm16b; ] {
 	call mN;
 }
 
+# PIC code reads the PC with "l.jal 8" (to the instruction after the delay slot; "l.jal 4"
+# without a delay slot), e.g. before adding the GOT offset to r9. That is not a call: model
+# it as setting r9 and falling through, or every PIC function would be split in two.
+@ifdef NO_DELAY_SLOT
+:l.jal mN is opcode = 0x1 & imm26 = 1 & mN {
+	r9 = inst_next;
+}
+@else
+:l.jal mN is opcode = 0x1 & imm26 = 2 & mN {
+	r9 = inst_next + 4;
+	delayslot(1);
+}
+@endif
+
 :l.adrp rD, mNadrp is opcode = 0x2 & rD & mNadrp {
 	rD = mNadrp;
 }
