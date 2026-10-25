@@ -3,14 +3,15 @@
 #
 # Delay slot handling. With a delay slot the link address is the instruction after the delay
 # slot (jump + 8); without one (CPUCFGR[ND]) it is jump + 4 (arch manual 1.4, l.jal/l.jalr).
+# In SLEIGH, inst_next of an instruction with a delay slot already points past the delay slot,
+# so the link address is inst_next in both cases.
 #
 @ifdef NO_DELAY_SLOT
 @define DELAY_SLOT ""
-@define LINK_ADDR "inst_next"
 @else
 @define DELAY_SLOT "delayslot(1);"
-@define LINK_ADDR "inst_next + 4"
 @endif
+@define LINK_ADDR "inst_next"
 
 #
 # Macros
@@ -62,7 +63,6 @@ macro setmac(var) {
 define pcodeop csync;
 define pcodeop msync;
 define pcodeop psync;
-define pcodeop macsync;
 
 define pcodeop cust1;
 define pcodeop cust2;
@@ -145,7 +145,7 @@ sprD: ea is uimm16a & uimm16b [ ea = uimm16a << 11 | uimm16b; ] {
 }
 @else
 :l.jal mN is opcode = 0x1 & imm26 = 2 & mN {
-	r9 = inst_next + 4;
+	r9 = inst_next;
 	delayslot(1);
 }
 @endif
@@ -174,7 +174,6 @@ with : opcode = 0x6 & f_17_20 = 0 {
 	}
 
 	:l.macrc rD is op6code = 0x1 & uimm16 = 0x0 & rD {
-		macsync();
 		rD = MACLO;
 		MACLO = 0;
 		MACHI = 0;
