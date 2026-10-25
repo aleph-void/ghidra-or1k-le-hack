@@ -367,12 +367,11 @@ with : opcode = 0x38 {
 	:l.extws rD, rA is f_0_10 = 0x00d & f_11_15 = 0 & rD & rA { rD = rA; }
 	:l.extwz rD, rA is f_0_10 = 0x04d & f_11_15 = 0 & rD & rA { rD = rA; }
 
+	# Branch-free: gcc puts l.cmov in delay slots, where a "goto inst_next" would skip the
+	# jump the slot belongs to.
 	:l.cmov rD, rA, rB is f_0_10 = 0x00e & rD & rA & rB {
-		if (F) goto <choose_rA>;
-		rD = rB;
-		goto inst_next;
-		<choose_rA>
-		rD = rA;
+		local m:4 = -zext(F);
+		rD = (rA & m) | (rB & ~m);
 	}
 
 	# first set bit, counting from 1 at the LSB (0 if none)
