@@ -185,6 +185,13 @@ Problems the real binaries found, all fixed (details in CREDITS.md):
 | `l.cmov` in a delay slot (gcc `-mcmov`) | `smax` ran into the next function | correct |
 | Prototype named `default` | "Unknown calling convention" on every DWARF-typed function | clean |
 
+## Upstream limitations and issues
+
+Neither Spritetm/ghidra-or1k-le-hack nor smaeul/ghidra-or1k has issues (open or closed) or
+TODO/FIXME comments. The upstream README's only limitation, that the LE hack removed delay slots
+from both languages, is fixed (CREDITS.md item 1). Its stale install steps (Ghidra 11.2.1,
+clone into `Ghidra/Processors`) were updated in README.md, which now also lists both languages.
+
 ## Known gaps
 
 - **glibc `vfprintf` jump tables.** In `ldconfig`, `__printf_buffer` and `__wprintf_buffer`

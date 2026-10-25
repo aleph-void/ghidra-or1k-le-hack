@@ -65,9 +65,14 @@ Each item names the problem and how it was found.
 10. **ELF extension.** It sets r16 = GOT over `.plt` and names PLT entries after their
     `JMP_SLOT` symbols, so PIC PLT stubs become thunks.
 11. Compiled `.sla` files are no longer tracked.
+12. **README.md** (the upstream README). The Ghidra 11.2.1 / "clone into Processors" install
+    steps were replaced by the release-zip and `gradle buildExtension` steps (the module now has
+    a Java part); it now lists the BE and LE languages, links the fork's Releases page and
+    GHIDRA-RARE.md, and marks each upstream limitation as fixed or remaining. Neither upstream
+    repository has issues.
 
 `l.muldu` keeps the architecture manual's encoding (secondary opcode 0xc, also used by QEMU);
-binutils uses 0xd. See README.
+binutils uses 0xd. See GHIDRA-RARE.md.
 
-Ghidra-Rare-only files (not in the fork): `README.md`, `CREDITS.md`, `build.gradle`,
-`extension.properties`, `.gitignore` and `test/`.
+Ghidra-Rare additions (not upstream): `GHIDRA-RARE.md`, `CREDITS.md`, `build.gradle`,
+`extension.properties`, `.gitignore`, `.github/` and `test/`.
