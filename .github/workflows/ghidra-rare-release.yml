@@ -1,0 +1,29 @@
+# Builds this module for the three newest Ghidra releases using Ghidra-Rare's shared workflow.
+# Pushes keep the zips as workflow artifacts; a ghidra-rare-v* tag publishes a GitHub release.
+name: Ghidra-Rare release builds
+
+on:
+  push:
+    branches: [ghidra-rare]
+    tags: ['ghidra-rare-v*']
+  pull_request:
+    branches: [ghidra-rare]
+  workflow_dispatch:
+    inputs:
+      ghidra_versions:
+        description: Space-separated Ghidra versions (default is the three newest releases)
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    uses: aleph-void/Ghidra-Rare/.github/workflows/module-release.yml@main
+    with:
+      module_dir: .
+      name: OpenRISC
+      ghidra_versions: ${{ inputs.ghidra_versions || '' }}
+    permissions:
+      contents: write
