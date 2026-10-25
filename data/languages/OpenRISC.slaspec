@@ -1,7 +1,14 @@
 # Specification for the 32-bit OpenRISC instruction set
 #
+# Variants are selected with preprocessor symbols defined by the wrapper .slaspec files:
+#   ENDIAN         "big" (default) or "little"
+#   NO_DELAY_SLOT  jumps and branches have no delay slot (CPUCFGR[ND] set)
 
-define endian=big;
+@ifndef ENDIAN
+@define ENDIAN "big"
+@endif
+
+define endian=$(ENDIAN);
 define alignment=4;
 
 define space ram      type=ram_space      size=4 default;

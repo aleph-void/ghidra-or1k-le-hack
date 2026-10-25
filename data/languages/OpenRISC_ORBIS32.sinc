@@ -1,6 +1,18 @@
 # OpenRISC ORBIS32 Instruction Set, v1.3
 
 #
+# Delay slot handling. With a delay slot the link address is the instruction after the delay
+# slot (jump + 8); without one (CPUCFGR[ND]) it is jump + 4 (arch manual 1.4, l.jal/l.jalr).
+#
+@ifdef NO_DELAY_SLOT
+@define DELAY_SLOT ""
+@define LINK_ADDR "inst_next"
+@else
+@define DELAY_SLOT "delayslot(1);"
+@define LINK_ADDR "inst_next + 4"
+@endif
+
+#
 # Macros
 #
 macro halfAdd(result, left, right) {
@@ -107,13 +119,13 @@ sprD: ea is uimm16a & uimm16b [ ea = uimm16a << 11 | uimm16b; ] {
 # Instructions
 #
 :l.j mN is opcode = 0x0 & mN {
-#	delayslot(1);
+	$(DELAY_SLOT)
 	goto mN;
 }
 
 :l.jal mN is opcode = 0x1 & mN {
-	r9 = inst_next + 4;
-#	delayslot(1);
+	r9 = $(LINK_ADDR);
+	$(DELAY_SLOT)
 	call mN;
 }
 
@@ -123,13 +135,13 @@ sprD: ea is uimm16a & uimm16b [ ea = uimm16a << 11 | uimm16b; ] {
 
 :l.bnf mN is opcode = 0x3 & mN {
 	local flag = F;
-#	delayslot(1);
+	$(DELAY_SLOT)
 	if (!flag) goto mN;
 }
 
 :l.bf mN is opcode = 0x4 & mN {
 	local flag = F;
-#	delayslot(1);
+	$(DELAY_SLOT)
 	if (flag) goto mN;
 }
 
@@ -173,20 +185,20 @@ with : opcode = 0x8 {
 
 :l.jr rB is opcode = 0x11 & rB {
 	local ea = rB;
-#	delayslot(1);
+	$(DELAY_SLOT)
 	goto [ea];
 }
 
 :l.jr rB is opcode = 0x11 & rB & rB = 0x9 {
 	local ea = rB;
-#	delayslot(1);
+	$(DELAY_SLOT)
 	return [ea];
 }
 
 :l.jalr rB is opcode = 0x12 & rB {
 	local ea = rB;
-	r9 = inst_next + 4;
-#	delayslot(1);
+	r9 = $(LINK_ADDR);
+	$(DELAY_SLOT)
 	call [ea];
 }
 

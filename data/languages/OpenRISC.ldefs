@@ -9,7 +9,7 @@
             slafile="OpenRISC-le.sla"
             processorspec="OpenRISC.pspec"
             id="OpenRISC:LE:32:default">
-    <description>OpenRISC 1000 ORBIS32 LE</description>
+    <description>OpenRISC 1000 ORBIS32 LE, no delay slot (hx330x)</description>
     <compiler name="default" spec="OpenRISC.cspec" id="default" />
   </language>
   <language processor="OpenRISC"
