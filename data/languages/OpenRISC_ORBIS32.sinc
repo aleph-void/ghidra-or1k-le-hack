@@ -16,6 +16,13 @@
 #
 # Macros
 #
+# SR bits 9, 10 and 11 are the flags F, CY and OV, kept in their own registers
+macro sr_to_flags(v) {
+	F = (v & 0x200) != 0;
+	CY = (v & 0x400) != 0;
+	OV = (v & 0x800) != 0;
+}
+
 macro halfAdd(result, left, right) {
 	CY = carry(left, right);
 	OV = scarry(left, right);
@@ -201,6 +208,7 @@ with : opcode = 0x8 {
 
 :l.rfe is opcode = 0x9 & imm26 = 0 {
 	SR = ESR0;
+	sr_to_flags(SR);
 	return [EPCR0];
 }
 
@@ -263,7 +271,10 @@ with : opcode = 0x8 {
 
 :l.mfspr rD, rA, iK is opcode = 0x2d & rD & rA & iK {
 	local ea = rA | iK;
-	rD = *[register]ea;
+	local v = *[register]ea;
+	# SR (SPR 17) holds the flags F, CY and OV, which are kept in their own registers
+	local sr:1 = ea == 17;
+	rD = v + zext(sr) * (((v & ~0xe00) | (zext(F) << 9) | (zext(CY) << 10) | (zext(OV) << 11)) - v);
 }
 
 with : opcode = 0x2e & f_8_15 = 0 {
@@ -288,7 +299,13 @@ with : opcode = 0x2f {
 
 :l.mtspr rA, rB, sprD is opcode = 0x30 & rA & rB & sprD {
 	local ea = rA | sprD;
-	*[register]ea = rB;
+	local v = rB;
+	*[register]ea = v;
+	# writing SR (SPR 17) also sets the flags F, CY and OV from bits 9, 10 and 11
+	local sr:1 = ea == 17;
+	F = (F && !sr) || (sr && (v & 0x200) != 0);
+	CY = (CY && !sr) || (sr && (v & 0x400) != 0);
+	OV = (OV && !sr) || (sr && (v & 0x800) != 0);
 }
 
 with : opcode = 0x31 & f_21_25 = 0 {
@@ -416,9 +433,15 @@ with : opcode = 0x38 {
 		setmac(result);
 	}
 
-	# Arch manual 1.4 and QEMU encode l.muldu with secondary opcode 0xc; binutils 2.45 uses
-	# 0xd (cpu/or1korbis.cpu OPC_ALU_REGREG_MULDU). The manual's encoding is used here.
+	# Arch manual 1.4 and QEMU encode l.muldu with secondary opcode 0xc; binutils 2.45 (and so
+	# GNU as) uses 0xd (cpu/or1korbis.cpu OPC_ALU_REGREG_MULDU). 0xd is otherwise unassigned,
+	# so both encodings decode as l.muldu.
 	:l.muldu rA, rB is f_0_10 = 0x30c & f_21_25 = 0 & rA & rB {
+		local result;
+		mul64z(result, rA, rB);
+		setmac(result);
+	}
+	:l.muldu rA, rB is f_0_10 = 0x30d & f_21_25 = 0 & rA & rB {
 		local result;
 		mul64z(result, rA, rB);
 		setmac(result);
